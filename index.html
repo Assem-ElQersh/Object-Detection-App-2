@@ -1,0 +1,1286 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#3B82F6" />
+    <meta
+      name="description"
+      content="Real-time object detection application using TensorFlow.js"
+    />
+    <title>Object Detection App</title>
+    
+    <!-- Load TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0"></script>
+    <!-- Load COCO-SSD model -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3"></script>
+    <!-- Load BlazeFace model -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7"></script>
+    <!-- Load React -->
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <!-- Load Babel for JSX support -->
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.8/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              primary: {
+                50: '#f0f9ff',
+                100: '#e0f2fe',
+                200: '#bae6fd',
+                300: '#7dd3fc',
+                400: '#38bdf8',
+                500: '#0ea5e9',
+                600: '#0284c7',
+                700: '#0369a1',
+                800: '#075985',
+                900: '#0c4a6e',
+              }
+            },
+            animation: {
+              'spin-slow': 'spin 3s linear infinite',
+            }
+          }
+        }
+      }
+    </script>
+    
+    <!-- Custom CSS -->
+    <style>
+      /* Global styles */
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        color: #1a202c;
+        background-color: #f7fafc;
+      }
+
+      /* Custom utility classes */
+      .canvas-container {
+        position: relative;
+        max-width: 100%;
+        margin: 0 auto;
+        overflow: hidden;
+      }
+
+      .canvas-container canvas {
+        display: block;
+        max-width: 100%;
+        height: auto;
+      }
+
+      /* Animation for loading spinner */
+      @keyframes spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .animate-spin {
+        animation: spin 1s linear infinite;
+      }
+
+      /* Transitions */
+      .fade-enter {
+        opacity: 0;
+      }
+      .fade-enter-active {
+        opacity: 1;
+        transition: opacity 300ms;
+      }
+      .fade-exit {
+        opacity: 1;
+      }
+      .fade-exit-active {
+        opacity: 0;
+        transition: opacity 300ms;
+      }
+
+      /* Webcam styles */
+      .webcam-container {
+        position: relative;
+        width: 100%;
+        max-width: 640px;
+        margin: 0 auto;
+        overflow: hidden;
+        border-radius: 0.5rem;
+      }
+
+      /* Detection boxes */
+      .detection-box {
+        position: absolute;
+        border: 3px solid;
+        border-radius: 4px;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05);
+        pointer-events: none;
+      }
+
+      .detection-label {
+        position: absolute;
+        top: -30px;
+        left: 0;
+        padding: 4px 8px;
+        color: white;
+        font-size: 14px;
+        font-weight: 600;
+        border-radius: 4px 4px 0 0;
+        white-space: nowrap;
+      }
+    </style>
+  </head>
+  <body>
+    <noscript>You need to enable JavaScript to run this app.</noscript>
+    <div id="root"></div>
+
+    <!-- All JavaScript Code -->
+    <script type="text/babel">
+      // ==============================================
+      // CONSTANTS
+      // ==============================================
+      
+      // Supported model configurations
+      const MODELS = [
+        {
+          name: 'COCO-SSD',
+          type: 'cocossd',
+          description: 'Fast object detection with 80 object categories',
+          threshold: 0.5,        // Confidence threshold
+          maxDetections: 20,     // Maximum detections to return
+          modelSize: 'lite_mobilenet_v2',     // Model size variant
+          classes: [             // Classes that this model can detect
+            'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus',
+            'train', 'truck', 'boat', 'traffic light', 'fire hydrant', 
+            'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 
+            'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 
+            'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 
+            'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 
+            'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 
+            'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 
+            'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot', 
+            'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 
+            'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 
+            'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 
+            'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 
+            'scissors', 'teddy bear', 'hair drier', 'toothbrush'
+          ]
+        },
+        {
+          name: 'BlazeFace',
+          type: 'blazeface',
+          description: 'Fast face detection optimized for mobile devices',
+          threshold: 0.75,       // Confidence threshold
+          maxFaces: 10,          // Maximum faces to detect
+          classes: ['face']      // Only detects faces
+        }
+      ];
+
+      // File upload constraints
+      const FILE_UPLOAD_CONSTRAINTS = {
+        maxSizeMB: 10,
+        acceptedTypes: 'image/jpeg,image/png,image/gif,image/webp'
+      };
+
+      // Webcam resolution options
+      const WEBCAM_RESOLUTIONS = {
+        low: {
+          width: 320,
+          height: 240,
+          label: 'Low (320×240)'
+        },
+        medium: {
+          width: 640,
+          height: 480,
+          label: 'Medium (640×480)'
+        },
+        high: {
+          width: 1280,
+          height: 720,
+          label: 'High (1280×720)'
+        }
+      };
+
+      // ==============================================
+      // UTILITIES & SERVICES
+      // ==============================================
+     
+      // Initialize tensorflow
+      tf.enableProdMode(); // Optimize for production environments
+
+      /**
+       * Load a model based on the specified type
+       */
+      async function loadModel(modelType, options = {}) {
+        console.log(`Loading ${modelType} model...`);
+        
+        try {
+          // Initialize TensorFlow.js
+          await tf.ready();
+          console.log('TensorFlow.js initialized');
+          
+          let model;
+          
+          switch (modelType) {
+            case 'cocossd':
+              // Load COCO-SSD model
+              model = await cocoSsd.load({
+                base: options.modelSize || 'lite_mobilenet_v2', // 'lite', 'mobilenet_v1', 'mobilenet_v2'
+                ...options
+              });
+              console.log('COCO-SSD model loaded successfully');
+              break;
+              
+            case 'blazeface':
+              // Load BlazeFace model for face detection
+              model = await blazeface.load({
+                maxFaces: options.maxFaces || 10,
+                ...options
+              });
+              console.log('BlazeFace model loaded successfully');
+              break;
+              
+            case 'custom':
+              // Load a custom model (if implemented)
+              if (!options.modelUrl) {
+                throw new Error('Model URL is required for custom models');
+              }
+              
+              model = await tf.loadGraphModel(options.modelUrl);
+              console.log('Custom model loaded successfully');
+              break;
+              
+            default:
+              throw new Error(`Unknown model type: ${modelType}`);
+          }
+          
+          return model;
+        } catch (error) {
+          console.error('Error loading model:', error);
+          throw new Error(`Failed to load ${modelType} model: ${error.message}`);
+        }
+      }
+
+      /**
+       * Detect objects in an image or video frame
+       */
+      async function detectObjects(model, imageElement, modelConfig) {
+        if (!model || !imageElement) {
+          console.log("Missing model or image element", {model, imageElement});
+          return [];
+        }
+
+        try {
+          let predictions;
+          console.log(`Running detection with ${modelConfig.type} model`);
+
+          // Different detection approach based on model type
+          switch (modelConfig.type) {
+            case 'cocossd':
+              // COCO-SSD detection
+              predictions = await model.detect(imageElement, {
+                scoreThreshold: modelConfig.threshold || 0.5,
+                maxDetections: modelConfig.maxDetections || 20,
+              });
+              console.log("COCO-SSD detection results:", predictions);
+              return predictions.map(prediction => ({
+                bbox: prediction.bbox, // [x, y, width, height]
+                class: prediction.class,
+                score: prediction.score,
+              }));
+
+            case 'blazeface':
+              // Blazeface detection
+              console.log("Running BlazeFace detection");
+              predictions = await model.estimateFaces(imageElement, false);
+              console.log("BlazeFace detection results:", predictions);
+              
+              return predictions.map(prediction => {
+                // Convert Blazeface format to standardized format
+                const topLeft = prediction.topLeft.arraySync();
+                const bottomRight = prediction.bottomRight.arraySync();
+                const width = bottomRight[0] - topLeft[0];
+                const height = bottomRight[1] - topLeft[1];
+                
+                return {
+                  bbox: [topLeft[0], topLeft[1], width, height],
+                  class: 'face',
+                  score: prediction.probability[0],
+                };
+              });
+
+            case 'custom':
+              // Custom model handling
+              console.warn('Custom model detection not fully implemented');
+              return [];
+
+            default:
+              console.error('Unknown model type:', modelConfig.type);
+              return [];
+          }
+        } catch (error) {
+          console.error('Error during object detection:', error);
+          return [];
+        }
+      }
+
+      /**
+       * Draw detection boxes and labels on canvas
+       */
+      function drawDetections(ctx, detections, modelConfig) {
+        if (!ctx || !detections || !Array.isArray(detections)) {
+          return;
+        }
+
+        // Color palette for different classes
+        const colorPalette = [
+          '#FF3B30', // Red
+          '#4CD964', // Green
+          '#007AFF', // Blue
+          '#FF9500', // Orange
+          '#5856D6', // Purple
+          '#FF2D55', // Pink
+          '#FFCC00', // Yellow
+          '#34C759', // Mint
+          '#5AC8FA', // Teal
+          '#AF52DE'  // Lavender
+        ];
+
+        const labelFontSize = 16;
+        ctx.font = `${labelFontSize}px Arial`;
+        ctx.lineWidth = 3;
+
+        // Create a map for class colors to maintain consistency
+        const classColorMap = new Map();
+        let colorIndex = 0;
+
+        detections.forEach(detection => {
+          const { bbox, class: className, score } = detection;
+          const [x, y, width, height] = bbox;
+          
+          // Ensure coordinates are within canvas
+          if (x < 0 || y < 0 || x + width > ctx.canvas.width || y + height > ctx.canvas.height) {
+            return; // Skip this detection if it's outside the canvas
+          }
+
+          // Assign a color for this class
+          if (!classColorMap.has(className)) {
+            classColorMap.set(className, colorPalette[colorIndex % colorPalette.length]);
+            colorIndex++;
+          }
+          const color = classColorMap.get(className);
+
+          // Draw bounding box
+          ctx.strokeStyle = color;
+          ctx.beginPath();
+          ctx.rect(x, y, width, height);
+          ctx.stroke();
+
+          // Format label text
+          const confidence = Math.round(score * 100);
+          const label = `${className}: ${confidence}%`;
+          const textMetrics = ctx.measureText(label);
+          const textWidth = textMetrics.width;
+          const padding = 4;
+
+          // Draw label background
+          ctx.fillStyle = color;
+          ctx.fillRect(x, y - labelFontSize - padding * 2, textWidth + padding * 2, labelFontSize + padding * 2);
+          
+          // Draw label text
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillText(label, x + padding, y - padding);
+        });
+      }
+
+      // ==============================================
+      // REACT COMPONENTS
+      // ==============================================
+      
+      const { useState, useEffect, useRef } = React;
+
+      // ModelSelector Component
+      function ModelSelector({ models, selectedModel, onModelChange, disabled }) {
+        const handleChange = (e) => {
+          onModelChange(e.target.value);
+        };
+        
+        return (
+          <div className="flex flex-col">
+            <label htmlFor="model-selector" className="text-sm font-medium text-gray-700 mb-1">
+              Detection Model
+            </label>
+            <div className="relative">
+              <select
+                id="model-selector"
+                value={selectedModel}
+                onChange={handleChange}
+                disabled={disabled}
+                className={`
+                  appearance-none rounded-md block w-full px-3 py-2 border border-gray-300
+                  shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500
+                  ${disabled ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : 'bg-white'}
+                `}
+              >
+                {models.map((model) => (
+                  <option key={model.type} value={model.type}>
+                    {model.name} - {model.description}
+                  </option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                  <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+                </svg>
+              </div>
+            </div>
+            {selectedModel && (
+              <div className="mt-1 text-xs text-gray-500">
+                {models.find(m => m.type === selectedModel)?.description}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // ImageUploader Component
+      function ImageUploader({ onImageUpload, disabled }) {
+        const [error, setError] = useState(null);
+        const fileInputRef = useRef(null);
+        const [isLoading, setIsLoading] = useState(false);
+        
+        const handleFileChange = (e) => {
+          const file = e.target.files[0];
+          
+          if (!file) {
+            return;
+          }
+          
+          // Check file type
+          const validTypes = FILE_UPLOAD_CONSTRAINTS.acceptedTypes.split(',').map(type => type.trim());
+          if (!validTypes.includes(file.type)) {
+            setError('Please select a valid image file (JPEG, PNG, GIF, or WebP)');
+            fileInputRef.current.value = '';
+            return;
+          }
+          
+          // Check file size
+          const maxSizeBytes = FILE_UPLOAD_CONSTRAINTS.maxSizeMB * 1024 * 1024;
+          if (file.size > maxSizeBytes) {
+            setError(`Image size should be less than ${FILE_UPLOAD_CONSTRAINTS.maxSizeMB}MB`);
+            fileInputRef.current.value = '';
+            return;
+          }
+          
+          // Clear previous errors
+          setError(null);
+          setIsLoading(true);
+          
+          // Create image object
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            console.log("File loaded to data URL");
+            const img = new Image();
+            
+            img.onload = () => {
+              console.log("Image loaded successfully:", img.width, "x", img.height);
+              setIsLoading(false);
+              onImageUpload(img);
+            };
+            
+            img.onerror = (err) => {
+              console.error("Image loading error:", err);
+              setError('Failed to load image. Please try another file.');
+              setIsLoading(false);
+            };
+            
+            // Set crossOrigin to avoid tainted canvas issues
+            img.crossOrigin = "anonymous";
+            img.src = event.target.result;
+          };
+          
+          reader.onerror = (err) => {
+            console.error("FileReader error:", err);
+            setError('Failed to read the image file.');
+            setIsLoading(false);
+          };
+          
+          console.log("Reading file as data URL");
+          reader.readAsDataURL(file);
+        };
+        
+        const handleUploadClick = () => {
+          fileInputRef.current.click();
+        };
+        
+        return (
+          <div className="w-full">
+            {/* Hidden file input */}
+            <input
+              type="file"
+              accept={FILE_UPLOAD_CONSTRAINTS.acceptedTypes}
+              onChange={handleFileChange}
+              ref={fileInputRef}
+              className="hidden"
+              disabled={disabled || isLoading}
+            />
+            
+            {/* Upload button */}
+            <button
+              onClick={handleUploadClick}
+              className={`px-4 py-2 rounded font-medium ${
+                disabled || isLoading
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-blue-500 hover:bg-blue-600 text-white'
+              }`}
+              disabled={disabled || isLoading}
+            >
+              {isLoading ? (
+                <span className="flex items-center">
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Loading...
+                </span>
+              ) : (
+                'Upload Image'
+              )}
+            </button>
+            
+            {/* Error message */}
+            {error && (
+              <p className="text-red-500 text-sm mt-2">
+                {error}
+              </p>
+            )}
+          </div>
+        );
+      }
+
+      // DetectionView Component
+      function DetectionView({
+        model,
+        image,
+        useWebcam,
+        isDetecting,
+        onDetectionResults,
+        onDetectionStart,
+        modelConfig
+      }) {
+        const imageRef = useRef(null);
+        const canvasRef = useRef(null);
+        const videoRef = useRef(null);
+        const [videoStream, setVideoStream] = useState(null);
+        const [canvasContext, setCanvasContext] = useState(null);
+        const [canvasInitialized, setCanvasInitialized] = useState(false);
+        const requestRef = useRef(null);
+        const [videoDimensions, setVideoDimensions] = useState({ width: 640, height: 480 });
+        const [webcamError, setWebcamError] = useState(null);
+        const isMounted = useRef(true);
+
+        // Set up isMounted ref for cleanup
+        useEffect(() => {
+          isMounted.current = true;
+          return () => {
+            isMounted.current = false;
+          };
+        }, []);
+
+        // Initialize canvas
+        useEffect(() => {
+          if (canvasRef.current) {
+            const ctx = canvasRef.current.getContext('2d');
+            setCanvasContext(ctx);
+            setCanvasInitialized(true);
+            console.log("Canvas initialized", ctx);
+          }
+        }, [canvasRef]);
+
+        // Handle image detection
+        useEffect(() => {
+          let isActive = true; // For handling async operations
+
+          if (image && model && canvasInitialized && !useWebcam) {
+            const detectImage = async () => {
+              try {
+                console.log("Starting image detection");
+                if (!isActive) return;
+                onDetectionStart();
+                
+                // Set canvas dimensions to match image
+                canvasRef.current.width = image.width;
+                canvasRef.current.height = image.height;
+                
+                // Clear previous results
+                canvasContext.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+                
+                // Draw the image first
+                canvasContext.drawImage(image, 0, 0, image.width, image.height);
+                
+                // Detect objects - add a timeout to allow UI to update
+                setTimeout(async () => {
+                  if (!isActive) return;
+                  
+                  try {
+                    console.log("Running detection on image");
+                    const results = await detectObjects(model, imageRef.current, modelConfig);
+                    console.log("Detection results:", results);
+                    
+                    if (!isActive) return;
+                    
+                    // Draw detection boxes
+                    drawDetections(canvasContext, results, modelConfig);
+                    
+                    // Send results to parent component
+                    onDetectionResults(results);
+                  } catch (error) {
+                    console.error("Error in detection:", error);
+                    if (isActive) {
+                      onDetectionResults([]);
+                    }
+                  }
+                }, 100);
+                
+              } catch (err) {
+                console.error('Error during image detection:', err);
+                if (isActive) {
+                  onDetectionResults([]);
+                }
+              }
+            };
+            
+            detectImage();
+          }
+          
+          return () => {
+            isActive = false;
+          };
+        }, [image, model, canvasInitialized, useWebcam, onDetectionStart, onDetectionResults, canvasContext, modelConfig]);
+
+        // Start/stop webcam
+        useEffect(() => {
+          let mounted = true;
+          
+          const startWebcam = async () => {
+            try {
+              setWebcamError(null);
+              console.log("Attempting to start webcam");
+              
+              const constraints = {
+                video: {
+                  width: { ideal: 640 },
+                  height: { ideal: 480 },
+                  facingMode: 'environment'
+                }
+              };
+              
+              const stream = await navigator.mediaDevices.getUserMedia(constraints);
+              console.log("Webcam stream obtained:", stream);
+              
+              if (!mounted) {
+                // Cleanup if component unmounted during async operation
+                stream.getTracks().forEach(track => track.stop());
+                return;
+              }
+              
+              setVideoStream(stream);
+              
+              if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                
+                videoRef.current.onloadedmetadata = () => {
+                  if (!mounted) return;
+                  
+                  console.log("Video metadata loaded:", videoRef.current.videoWidth, videoRef.current.videoHeight);
+                  setVideoDimensions({
+                    width: videoRef.current.videoWidth,
+                    height: videoRef.current.videoHeight
+                  });
+                  
+                  // Also update canvas dimensions
+                  if (canvasRef.current) {
+                    canvasRef.current.width = videoRef.current.videoWidth;
+                    canvasRef.current.height = videoRef.current.videoHeight;
+                    
+                    // Initial draw to show the video
+                    if (canvasContext) {
+                      canvasContext.drawImage(
+                        videoRef.current, 
+                        0, 0, 
+                        canvasRef.current.width, 
+                        canvasRef.current.height
+                      );
+                    }
+                  }
+                };
+                
+                // Explicitly start playing
+                videoRef.current.play().catch(e => {
+                  console.error("Error playing video:", e);
+                  setWebcamError("Could not play video: " + e.message);
+                });
+              }
+            } catch (err) {
+              console.error('Error accessing webcam:', err);
+              if (mounted) {
+                setWebcamError(`Webcam error: ${err.message || 'Could not access camera'}`);
+              }
+            }
+          };
+
+          const stopWebcam = () => {
+            console.log("Stopping webcam");
+            if (videoStream) {
+              videoStream.getTracks().forEach(track => {
+                console.log("Stopping track:", track);
+                track.stop();
+              });
+              setVideoStream(null);
+            }
+            
+            if (videoRef.current) {
+              videoRef.current.srcObject = null;
+            }
+            
+            if (requestRef.current) {
+              cancelAnimationFrame(requestRef.current);
+              requestRef.current = null;
+            }
+          };
+
+          if (useWebcam && !videoStream) {
+            startWebcam();
+          } else if (!useWebcam && videoStream) {
+            stopWebcam();
+          }
+
+          return () => {
+            mounted = false;
+            stopWebcam();
+          };
+        }, [useWebcam, canvasContext]);
+
+        // Webcam detection loop
+        useEffect(() => {
+          let isActive = true;
+          
+          const detectFrame = async () => {
+            if (!isActive) return;
+            
+            if (
+              videoRef.current && 
+              model && 
+              canvasContext && 
+              videoRef.current.readyState === 4 && // HAVE_ENOUGH_DATA
+              videoRef.current.videoWidth > 0
+            ) {
+              try {
+                // Draw the current video frame
+                canvasContext.drawImage(
+                  videoRef.current, 
+                  0, 0, 
+                  canvasRef.current.width, 
+                  canvasRef.current.height
+                );
+                
+                // Detect objects in the current frame
+                const results = await detectObjects(model, videoRef.current, modelConfig);
+                
+                if (!isActive) return;
+                
+                // Draw detection boxes
+                drawDetections(canvasContext, results, modelConfig);
+                
+                // Send results to parent component (throttled)
+                onDetectionResults(results);
+              } catch (err) {
+                console.error('Error during webcam detection:', err);
+              }
+            } else {
+              console.log("Not ready for detection:", {
+                videoReady: videoRef.current?.readyState === 4,
+                modelReady: !!model,
+                contextReady: !!canvasContext,
+                videoWidth: videoRef.current?.videoWidth
+              });
+            }
+            
+            // Continue the detection loop
+            if (isActive) {
+              requestRef.current = requestAnimationFrame(detectFrame);
+            }
+          };
+
+          // Only start detection if all required pieces are available
+          if (useWebcam && model && videoStream && canvasInitialized && videoRef.current) {
+            console.log("Starting webcam detection loop");
+            requestRef.current = requestAnimationFrame(detectFrame);
+          }
+
+          return () => {
+            isActive = false;
+            if (requestRef.current) {
+              cancelAnimationFrame(requestRef.current);
+              requestRef.current = null;
+            }
+          };
+        }, [useWebcam, model, videoStream, canvasInitialized, canvasContext, onDetectionResults, modelConfig]);
+
+        // Debug logging for video element
+        useEffect(() => {
+          if (videoRef.current) {
+            const video = videoRef.current;
+            
+            const handleVideoEvent = (event) => {
+              console.log(`Video event: ${event.type}`);
+            };
+            
+            // Listen for various video events for debugging
+            video.addEventListener('play', handleVideoEvent);
+            video.addEventListener('playing', handleVideoEvent);
+            video.addEventListener('pause', handleVideoEvent);
+            video.addEventListener('waiting', handleVideoEvent);
+            video.addEventListener('error', (e) => console.error('Video error:', e));
+            
+            return () => {
+              video.removeEventListener('play', handleVideoEvent);
+              video.removeEventListener('playing', handleVideoEvent);
+              video.removeEventListener('pause', handleVideoEvent);
+              video.removeEventListener('waiting', handleVideoEvent);
+              video.removeEventListener('error', handleVideoEvent);
+            };
+          }
+        }, [videoRef.current]);
+
+        return (
+          <div className="relative flex justify-center items-center bg-gray-100 rounded-lg overflow-hidden">
+            {/* Hidden image for detection processing */}
+            {image && !useWebcam && (
+              <img
+                ref={imageRef}
+                src={image.src}
+                alt="Detection source"
+                className="hidden"
+                crossOrigin="anonymous"
+              />
+            )}
+            
+            {/* Video element for webcam */}
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className={useWebcam ? "absolute inset-0 opacity-0" : "hidden"}
+            />
+            
+            {/* Canvas for drawing detection results */}
+            <canvas
+              ref={canvasRef}
+              className="max-w-full max-h-[70vh] object-contain"
+              width={videoDimensions.width}
+              height={videoDimensions.height}
+            />
+            
+            {/* Placeholder when no image or webcam */}
+            {!image && !useWebcam && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <p className="text-gray-500 text-lg">
+                  Upload an image or enable webcam to start detection
+                </p>
+              </div>
+            )}
+            
+            {/* Webcam error message */}
+            {useWebcam && webcamError && (
+              <div className="absolute inset-0 flex items-center justify-center bg-red-50">
+                <div className="text-center p-4">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-red-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <p className="text-red-700 font-medium">{webcamError}</p>
+                  <p className="text-gray-600 mt-2">Please ensure your camera is connected and you've granted permission to use it.</p>
+                </div>
+              </div>
+            )}
+            
+            {/* Loading overlay */}
+            {isDetecting && (
+              <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                <div className="flex flex-col items-center">
+                  <div className="w-12 h-12 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <p className="text-white mt-4">Detecting objects...</p>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // ResultsPanel Component
+      function ResultsPanel({ predictions, modelConfig }) {
+        const [sortBy, setSortBy] = useState('confidence'); // 'confidence' or 'name'
+        const [filterText, setFilterText] = useState('');
+        
+        if (!predictions || predictions.length === 0) {
+          return null;
+        }
+        
+        // Filter predictions based on search text
+        const filteredPredictions = predictions.filter(pred => 
+          pred.class.toLowerCase().includes(filterText.toLowerCase())
+        );
+        
+        // Sort predictions based on selected sort option
+        const sortedPredictions = [...filteredPredictions].sort((a, b) => {
+          if (sortBy === 'confidence') {
+            return b.score - a.score; // Highest confidence first
+          } else {
+            return a.class.localeCompare(b.class); // Alphabetical by class name
+          }
+        });
+        
+        // Count detections by class
+        const classCounts = {};
+        predictions.forEach(pred => {
+          classCounts[pred.class] = (classCounts[pred.class] || 0) + 1;
+        });
+        
+        // Get total number of unique classes detected
+        const uniqueClassesCount = Object.keys(classCounts).length;
+        
+        return (
+          <div className="bg-white shadow-md rounded-lg p-6">
+            <h2 className="text-xl font-semibold mb-4">Detection Results</h2>
+            
+            <div className="mb-4">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4">
+                {/* Detection summary */}
+                <div className="mb-2 md:mb-0">
+                  <p className="text-sm text-gray-600">
+                    Detected {predictions.length} object{predictions.length !== 1 ? 's' : ''} across {uniqueClassesCount} class{uniqueClassesCount !== 1 ? 'es' : ''}
+                  </p>
+                </div>
+                
+                {/* Sort and filter controls */}
+                <div className="flex flex-col md:flex-row md:items-center space-y-2 md:space-y-0 md:space-x-4">
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Filter objects..."
+                      value={filterText}
+                      onChange={(e) => setFilterText(e.target.value)}
+                      className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    {filterText && (
+                      <button
+                        onClick={() => setFilterText('')}
+                        className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-600">Sort by:</span>
+                    <select
+                      value={sortBy}
+                      onChange={(e) => setSortBy(e.target.value)}
+                      className="text-sm border border-gray-300 rounded-md px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="confidence">Confidence</option>
+                      <option value="name">Name</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* No results after filtering */}
+            {sortedPredictions.length === 0 && (
+              <p className="text-gray-500 text-center py-4">
+                No objects match your filter.
+              </p>
+            )}
+            
+            {/* Results table */}
+            {sortedPredictions.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Object Type
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Confidence
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Location
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {sortedPredictions.map((prediction, index) => (
+                      <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="w-3 h-3 rounded-full mr-2" style={{ 
+                              backgroundColor: `hsl(${(prediction.class.length * 5) % 360}, 70%, 50%)` 
+                            }}></div>
+                            <span className="font-medium text-gray-900">{prediction.class}</span>
+                            {classCounts[prediction.class] > 1 && (
+                              <span className="ml-2 text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full">
+                                {classCounts[prediction.class]}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center">
+                            <div className="w-full bg-gray-200 rounded-full h-2.5 mr-2 max-w-[100px]">
+                              <div 
+                                className="bg-blue-600 h-2.5 rounded-full" 
+                                style={{ width: `${Math.round(prediction.score * 100)}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-gray-900">{Math.round(prediction.score * 100)}%</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                          <span className="font-mono">
+                            x:{Math.round(prediction.bbox[0])}, y:{Math.round(prediction.bbox[1])}, 
+                            w:{Math.round(prediction.bbox[2])}, h:{Math.round(prediction.bbox[3])}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            
+            {/* Class distribution visualization */}
+            {Object.keys(classCounts).length > 1 && (
+              <div className="mt-6">
+                <h3 className="text-sm font-medium text-gray-700 mb-2">Class Distribution</h3>
+                <div className="flex flex-wrap gap-2">
+                  {Object.entries(classCounts)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([className, count]) => {
+                      const percentage = Math.round((count / predictions.length) * 100);
+                      return (
+                        <div 
+                          key={className}
+                          className="bg-gray-100 rounded-lg px-3 py-1 text-sm flex items-center"
+                          style={{ 
+                            borderLeft: `4px solid hsl(${(className.length * 5) % 360}, 70%, 50%)` 
+                          }}
+                        >
+                          <span className="font-medium mr-2">{className}</span>
+                          <span className="text-gray-500">{count} ({percentage}%)</span>
+                        </div>
+                      );
+                    })
+                  }
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // Main App Component
+      function App() {
+        const [selectedModel, setSelectedModel] = useState(MODELS[0]);
+        const [model, setModel] = useState(null);
+        const modelRef = useRef(null); // Ref to track current model
+        const [isModelLoading, setIsModelLoading] = useState(true);
+        const [image, setImage] = useState(null);
+        const [predictions, setPredictions] = useState([]);
+        const [useWebcam, setUseWebcam] = useState(false);
+        const [isDetecting, setIsDetecting] = useState(false);
+        const [error, setError] = useState(null);
+
+        // Update ref when model changes
+        useEffect(() => {
+          modelRef.current = model;
+        }, [model]);
+
+        // Load model on component mount or model change
+        useEffect(() => {
+          async function initializeModel() {
+            try {
+              setIsModelLoading(true);
+              setError(null);
+              
+              // Dispose previous model if exists
+              if (modelRef.current) {
+                modelRef.current.dispose();
+                setModel(null);
+              }
+
+              console.log(`Loading model: ${selectedModel.type}`);
+              const loadedModel = await loadModel(selectedModel.type);
+              
+              if (!loadedModel) {
+                throw new Error("Failed to load model - result was null");
+              }
+              
+              console.log("Model loaded successfully", loadedModel);
+              setModel(loadedModel);
+              setIsModelLoading(false);
+            } catch (err) {
+              console.error('Error loading model:', err);
+              setError(`Failed to load ${selectedModel.name} model. Please try another model or refresh the page.`);
+              setIsModelLoading(false);
+            }
+          }
+
+          initializeModel();
+
+          // Cleanup function
+          return () => {
+            // Dispose model when component unmounts or model changes
+            if (modelRef.current) {
+              try {
+                modelRef.current.dispose();
+              } catch (err) {
+                console.error("Error disposing model:", err);
+              }
+              setModel(null);
+            }
+          };
+        }, [selectedModel]);
+
+        const handleModelChange = (modelType) => {
+          const newModel = MODELS.find(m => m.type === modelType);
+          if (newModel) {
+            setSelectedModel(newModel);
+            // Reset state when model changes
+            setPredictions([]);
+            setImage(null);
+          }
+        };
+
+        const handleImageUpload = (imageData) => {
+          if (useWebcam) {
+            setUseWebcam(false);
+          }
+          setImage(imageData);
+          setPredictions([]);
+        };
+
+        const toggleWebcam = () => {
+          setUseWebcam(!useWebcam);
+          if (image) {
+            setImage(null);
+          }
+          setPredictions([]);
+        };
+
+        const handleDetectionResults = (results) => {
+          setPredictions(results);
+          setIsDetecting(false);
+        };
+
+        const startDetection = () => {
+          setIsDetecting(true);
+        };
+
+        return (
+          <div className="max-w-6xl mx-auto p-4">
+            <header className="mb-8 text-center">
+              <h1 className="text-3xl font-bold mb-2">Object Detection App</h1>
+              <p className="text-gray-600">Detect objects in images and webcam using AI models</p>
+            </header>
+
+            <div className="bg-white shadow-md rounded-lg p-6 mb-8">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
+                <ModelSelector 
+                  models={MODELS} 
+                  selectedModel={selectedModel.type} 
+                  onModelChange={handleModelChange} 
+                  disabled={isModelLoading || isDetecting}
+                />
+                
+                <div className="flex mt-4 md:mt-0 space-x-4">
+                  <ImageUploader 
+                    onImageUpload={handleImageUpload} 
+                    disabled={isModelLoading || isDetecting || useWebcam} 
+                  />
+                  
+                  <button
+                    onClick={toggleWebcam}
+                    className={`px-4 py-2 rounded font-medium ${
+                      useWebcam 
+                        ? 'bg-red-500 hover:bg-red-600 text-white' 
+                        : 'bg-blue-500 hover:bg-blue-600 text-white'
+                    }`}
+                    disabled={isModelLoading || isDetecting}
+                  >
+                    {useWebcam ? 'Disable Webcam' : 'Enable Webcam'}
+                  </button>
+                </div>
+              </div>
+
+              {error && (
+                <div className="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6">
+                  <p>{error}</p>
+                </div>
+              )}
+
+              {isModelLoading ? (
+                <div className="flex flex-col items-center justify-center p-12">
+                  <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <p className="mt-4 text-lg">Loading {selectedModel.name} model...</p>
+                </div>
+              ) : (
+                <DetectionView
+                  model={model}
+                  image={image}
+                  useWebcam={useWebcam}
+                  isDetecting={isDetecting}
+                  onDetectionResults={handleDetectionResults}
+                  onDetectionStart={startDetection}
+                  modelConfig={selectedModel}
+                />
+              )}
+            </div>
+
+            {predictions.length > 0 && (
+              <ResultsPanel predictions={predictions} modelConfig={selectedModel} />
+            )}
+            
+            <footer className="mt-8 text-center text-gray-500 text-sm">
+              <p>Powered by TensorFlow.js and {selectedModel.name}</p>
+            </footer>
+          </div>
+        );
+      }
+
+      // Initialize TensorFlow.js
+      tf.setBackend('webgl').then(() => {
+        console.log('TensorFlow.js initialized with WebGL backend');
+      }).catch(err => {
+        console.warn('WebGL backend not available, falling back to CPU:', err);
+        tf.setBackend('cpu');
+      });
+
+      // Render the application
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
