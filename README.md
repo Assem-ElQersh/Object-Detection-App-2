@@ -1,6 +1,6 @@
 # Real-Time Object Detection Application (CDN Version)
 
-This is a modified version of the [Object Detection App](https://github.com/Assem-ElQersh/Object-Detection-App) that uses CDN-based dependencies instead of npm packages. This approach helps avoid dependency conflicts that can occur with npm installations.
+This is a modified version of my original [Object Detection App](https://github.com/Assem-ElQersh/Object-Detection-App) that uses CDN-based dependencies instead of npm packages. This approach helps avoid dependency conflicts that can occur with npm installations.
 
 ## Key Changes
 
